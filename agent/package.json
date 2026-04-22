@@ -1,0 +1,23 @@
+{
+  "name": "bimm-agent",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Agentic code-generation workflow for BIMM take-home",
+  "scripts": {
+    "agent": "tsx src/index.ts",
+    "eval": "tsx src/eval/run.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "dotenv": "^16.4.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "~5.7.0"
+  }
+}
