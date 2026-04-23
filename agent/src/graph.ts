@@ -91,6 +91,14 @@ export async function runAgent(args: RunAgentArgs): Promise<RunAgentResult> {
         boilerplate_root: args.boilerplate_root,
         output_root: args.output_root,
       });
+
+      // Sync the tracer's accumulated spans into state.traces. Keeps state
+      // as the single source of truth for post-run analysis — the summary
+      // and any future state-driven aggregation reads from here.
+      state = AgentStateSchema.parse({
+        ...state,
+        traces: [...tracer.getSpans()],
+      });
     }
 
     if (iterations >= maxIterations) {
