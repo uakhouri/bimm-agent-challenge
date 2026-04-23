@@ -65,7 +65,10 @@ export async function runValidator(
 
     const errors: ValidationError[] = [...typecheckErrors, ...testErrors];
 
-    const finishArgs: { status: "ok" | "error" | "escalated"; error_message?: string } = {
+    const finishArgs: {
+      status: "ok" | "error" | "escalated";
+      error_message?: string;
+    } = {
       status: errors.length === 0 ? "ok" : "error",
     };
 
@@ -242,6 +245,9 @@ async function runTests(
 
 interface VitestReport {
   testResults?: Array<{
+    // Vitest JSON reporter puts the file path in `name`, not `testFilePath`.
+    // `testFilePath` is kept for compatibility in case the format shifts back.
+    name?: string;
     testFilePath?: string;
     assertionResults?: Array<{
       status?: string;
@@ -266,12 +272,13 @@ function parseVitestOutput(stdout: string, stderr: string): ValidationError[] {
 
   const errors: ValidationError[] = [];
   for (const tr of report.testResults ?? []) {
+    const filePath = normalizeTestFilePath(tr.name ?? tr.testFilePath);
     for (const ar of tr.assertionResults ?? []) {
       if (ar.status !== "failed") continue;
       const failureText = (ar.failureMessages ?? []).join("\n");
       errors.push(
         validationError({
-          file: tr.testFilePath ?? "unknown.test.ts",
+          file: filePath,
           kind: "test",
           message: `${ar.fullName ?? "unnamed test"}: ${firstLine(failureText)}`,
           raw: failureText || "(no failure message)",
@@ -311,6 +318,17 @@ function firstLine(text: string): string {
   return line.length > 200 ? line.slice(0, 200) + "..." : line;
 }
 
+// ---------------------------------------------------------------------------
+// normalizeTestFilePath — convert absolute test file paths to relative.
+// ---------------------------------------------------------------------------
+
+function normalizeTestFilePath(absolute: string | undefined): string {
+  if (!absolute) return "unknown.test.ts";
+  const normalized = absolute.replace(/\\/g, "/");
+  const idx = normalized.lastIndexOf("/src/");
+  if (idx === -1) return normalized;
+  return normalized.slice(idx + 1); // drop leading "/" after src
+}
 // ---------------------------------------------------------------------------
 // Validation error constructor — single place to validate the shape.
 // ---------------------------------------------------------------------------
