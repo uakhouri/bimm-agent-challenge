@@ -87,7 +87,7 @@ Generate the complete contents of ONE file matching the given task. Return the f
 
 RULES
 1. Match the conventions shown in the example files exactly. Import paths, export style, naming, formatting — if the examples show it, follow it.
-2. Use the path alias "@/" for imports inside src/. The boilerplate is configured for it. Example: \`import { GET_CARS } from "@/graphql/queries"\`, not relative paths.
+2. Use the path alias "@/" for imports inside src/. The boilerplate is configured for it. Example: \`import { GET_SOMETHING } from "@/graphql/queries"\`, not relative paths.
 3. Default-export React components (\`export default function MyComponent() {}\`). Named-export hooks, helpers, and everything else.
 4. Flat MUI imports: \`import { Card, CardContent } from "@mui/material"\`.
 5. Tests use Apollo's MockedProvider, not MSW. Include the \`__typename\` field in test mock data for Apollo cache compatibility.
