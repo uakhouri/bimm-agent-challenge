@@ -153,7 +153,6 @@ async function runTypecheck(
     shellResult.value.stdout + "\n" + shellResult.value.stderr,
   );
 }
-
 // ---------------------------------------------------------------------------
 // Typecheck output parser.
 // ---------------------------------------------------------------------------

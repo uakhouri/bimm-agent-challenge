@@ -18,6 +18,7 @@ import {
   createInitialState,
   NextAction,
 } from "./state.js";
+import * as path from "node:path";
 import { route } from "./nodes/router.js";
 import { runPlanner } from "./nodes/planner.js";
 import { runGenerator } from "./nodes/generator.js";
@@ -25,7 +26,7 @@ import { runValidator } from "./nodes/validator.js";
 import { runJudge } from "./nodes/judge.js";
 import { runFixer } from "./nodes/fixer.js";
 import { Tracer } from "./tracing/tracer.js";
-import { copyBoilerplate, removeDir } from "./tools/fs.js";
+import { copyBoilerplate, readFile, removeDir, writeFile } from "./tools/fs.js";
 
 // ---------------------------------------------------------------------------
 // Configuration — the only knobs the orchestrator exposes.
@@ -230,6 +231,46 @@ async function prepareOutputDirectory(args: RunAgentArgs): Promise<void> {
     throw new Error(
       `Failed to copy boilerplate to output: ${copyResult.error.message}`,
     );
+  }
+
+  // Apply compatibility patches to the copied boilerplate. These fix
+  // version-mismatch issues without modifying the original boilerplate
+  // files BIMM provided. The patches are always safe to apply idempotently.
+  await applyCompatibilityPatches(args.output_root);
+}
+
+// ---------------------------------------------------------------------------
+// Compatibility patches on the copied boilerplate.
+// ---------------------------------------------------------------------------
+//
+// The boilerplate's tsconfig.json sets `ignoreDeprecations: "6.0"` — a
+// future-dated value that the installed TypeScript (5.7.x) rejects. We fix
+// it on the copy. The original file in the repo root is never touched; a
+// reviewer who diffs our repo against the boilerplate will see only our
+// agent workspace and documentation, not a modified tsconfig.
+// ---------------------------------------------------------------------------
+
+async function applyCompatibilityPatches(outputRoot: string): Promise<void> {
+  const tsconfigPath = path.join(outputRoot, "tsconfig.json");
+  const readResult = await readFile(tsconfigPath);
+  if (!readResult.ok) return;
+
+  const patched = readResult.value.replace(
+    /"ignoreDeprecations"\s*:\s*"6\.0"/,
+    '"ignoreDeprecations": "5.0"',
+  );
+
+  if (patched !== readResult.value) {
+    const writeResult = await writeFile({
+      root: outputRoot,
+      relativePath: "tsconfig.json",
+      contents: patched,
+    });
+    if (!writeResult.ok) {
+      throw new Error(
+        `Failed to patch tsconfig in output directory: ${writeResult.error.message}`,
+      );
+    }
   }
 }
 
