@@ -196,3 +196,51 @@ export async function removeDir(
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// copyBoilerplate — copy a directory tree with an exclusion list.
+// ---------------------------------------------------------------------------
+//
+// This function walks the source tree explicitly and skips any top-level
+// directory name in the exclusion set. That lets us copy the boilerplate's
+// own files (src, public, package.json, etc.) while skipping agent,
+// generated-app, node_modules, sample-traces, and .git.
+// ---------------------------------------------------------------------------
+
+export async function copyBoilerplate(args: {
+  from: string;
+  to: string;
+  exclude: string[];
+}): Promise<Result<void, ToolError>> {
+  try {
+    const excludeSet = new Set(args.exclude);
+    await fs.mkdir(args.to, { recursive: true });
+
+    const entries = await fs.readdir(args.from, { withFileTypes: true });
+    for (const entry of entries) {
+      if (excludeSet.has(entry.name)) continue;
+
+      const sourcePath = path.join(args.from, entry.name);
+      const destPath = path.join(args.to, entry.name);
+
+      if (entry.isDirectory()) {
+        await fs.cp(sourcePath, destPath, { recursive: true, force: true });
+      } else {
+        await fs.copyFile(sourcePath, destPath);
+      }
+    }
+
+    return ok(undefined);
+  } catch (caught) {
+    const e = caught as NodeJS.ErrnoException;
+    return err(
+      toolError({
+        kind: "copy_failed",
+        message: `Failed to copy boilerplate: ${e.message ?? e}`,
+        path: args.from,
+        raw: e,
+      })
+    );
+  }
+}
+

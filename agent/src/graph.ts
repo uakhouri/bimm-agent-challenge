@@ -25,7 +25,7 @@ import { runValidator } from "./nodes/validator.js";
 import { runJudge } from "./nodes/judge.js";
 import { runFixer } from "./nodes/fixer.js";
 import { Tracer } from "./tracing/tracer.js";
-import { copyDir, removeDir } from "./tools/fs.js";
+import { copyBoilerplate, removeDir } from "./tools/fs.js";
 
 // ---------------------------------------------------------------------------
 // Configuration — the only knobs the orchestrator exposes.
@@ -213,9 +213,18 @@ async function prepareOutputDirectory(args: RunAgentArgs): Promise<void> {
     }
   }
 
-  const copyResult = await copyDir({
+  const copyResult = await copyBoilerplate({
     from: args.boilerplate_root,
     to: args.output_root,
+    exclude: [
+      "agent",
+      "generated-app",
+      "node_modules",
+      "sample-traces",
+      ".git",
+      ".github",
+      ".vscode",
+    ],
   });
   if (!copyResult.ok) {
     throw new Error(
