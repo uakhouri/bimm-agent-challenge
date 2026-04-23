@@ -117,7 +117,12 @@ export async function runAgent(args: RunAgentArgs): Promise<RunAgentResult> {
       });
     }
   } finally {
-    const traceFile = await tracer.flush(args.traces_dir);
+    const traceFile = await tracer.flush(args.traces_dir, {
+      plan: state.plan,
+      verdicts: state.verdicts,
+      errors: state.errors,
+      final_status: state.status,
+    });
     return { state, trace_file: traceFile, iterations };
   }
 }

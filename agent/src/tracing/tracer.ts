@@ -92,7 +92,15 @@ export class Tracer {
   // which is harder to inspect manually.
   // -------------------------------------------------------------------------
 
-  async flush(outDir: string): Promise<string> {
+  async flush(
+    outDir: string,
+    extras?: {
+      plan?: unknown;
+      verdicts?: unknown;
+      errors?: unknown;
+      final_status?: string;
+    },
+  ): Promise<string> {
     await fs.mkdir(outDir, { recursive: true });
     const filePath = path.join(outDir, `run-${this.runId}.json`);
 
@@ -108,6 +116,10 @@ export class Tracer {
         (s, span) => s + span.duration_ms,
         0,
       ),
+      final_status: extras?.final_status,
+      plan: extras?.plan,
+      verdicts: extras?.verdicts,
+      errors: extras?.errors,
       spans: this.spans,
     };
 
