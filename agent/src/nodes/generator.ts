@@ -119,6 +119,44 @@ async function resolveDependencies(
 }
 
 // ---------------------------------------------------------------------------
+// Ambient dependencies — files every task should see regardless of plan.
+// ---------------------------------------------------------------------------
+
+const AMBIENT_PATHS = ["src/types.ts", "src/graphql/queries.ts"] as const;
+
+async function loadAmbientFiles(
+  boilerplateRoot: string,
+  outputRoot: string,
+): Promise<DependencyFile[]> {
+  const ambient: DependencyFile[] = [];
+  for (const relative of AMBIENT_PATHS) {
+    const fromOutput = path.join(outputRoot, relative);
+    const fromBoilerplate = path.join(boilerplateRoot, relative);
+
+    const target = (await exists(fromOutput)) ? fromOutput : fromBoilerplate;
+    if (!(await exists(target))) continue;
+
+    const readResult = await readFile(target);
+    if (!readResult.ok) continue;
+
+    ambient.push({ path: relative, contents: readResult.value });
+  }
+  return ambient;
+}
+
+function mergeDependencies(
+  declared: DependencyFile[],
+  ambient: DependencyFile[],
+): DependencyFile[] {
+  const seen = new Set(declared.map((d) => d.path));
+  const merged = [...declared];
+  for (const a of ambient) {
+    if (!seen.has(a.path)) merged.push(a);
+  }
+  return merged;
+}
+
+// ---------------------------------------------------------------------------
 // Few-shot loading.
 // ---------------------------------------------------------------------------
 
@@ -191,10 +229,16 @@ export async function runGenerator(
   const span = deps.tracer.startSpan({ node: "generator" });
 
   try {
-    const [dependencyFiles, fewShot] = await Promise.all([
+    const [declaredDeps, ambientDeps, fewShot] = await Promise.all([
       resolveDependencies(task, state, deps.output_root),
+      loadAmbientFiles(deps.boilerplate_root, deps.output_root),
       loadFewShotExamples(task, deps.boilerplate_root),
     ]);
+
+    // Ambient files come last so declared dependencies take precedence if a
+    // task happens to depend_on a file that is also ambient. Deduplication
+    // prevents the same file appearing twice in the prompt.
+    const dependencyFiles = mergeDependencies(declaredDeps, ambientDeps);
 
     const prompt = buildGeneratorPrompt({
       task,

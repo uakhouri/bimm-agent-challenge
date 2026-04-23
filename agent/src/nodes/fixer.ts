@@ -93,10 +93,14 @@ export async function runFixer(
       return state;
     }
 
-    const dependencyFiles = await resolveDependencyFiles(
-      task,
-      state,
-      deps.output_root,
+    const [declaredDeps, ambientDeps] = await Promise.all([
+      resolveDependencyFiles(task, state, deps.output_root),
+      loadAmbientFilesForFixer(deps.boilerplate_root, deps.output_root),
+    ]);
+
+    const dependencyFiles = mergeDependenciesForFixer(
+      declaredDeps,
+      ambientDeps,
     );
 
     const attemptNumber = currentAttemptNumber(state, task.id) + 1;
@@ -249,4 +253,42 @@ function appendRuntimeError(
       },
     ],
   });
+}
+
+// ---------------------------------------------------------------------------
+// Ambient dependencies for the Fixer.
+// ---------------------------------------------------------------------------
+
+const FIXER_AMBIENT_PATHS = ["src/types.ts", "src/graphql/queries.ts"] as const;
+
+async function loadAmbientFilesForFixer(
+  boilerplateRoot: string,
+  outputRoot: string,
+): Promise<Array<{ path: string; contents: string }>> {
+  const ambient: Array<{ path: string; contents: string }> = [];
+  for (const relative of FIXER_AMBIENT_PATHS) {
+    const fromOutput = path.join(outputRoot, relative);
+    const fromBoilerplate = path.join(boilerplateRoot, relative);
+
+    const target = (await exists(fromOutput)) ? fromOutput : fromBoilerplate;
+    if (!(await exists(target))) continue;
+
+    const readResult = await readFile(target);
+    if (!readResult.ok) continue;
+
+    ambient.push({ path: relative, contents: readResult.value });
+  }
+  return ambient;
+}
+
+function mergeDependenciesForFixer(
+  declared: Array<{ path: string; contents: string }>,
+  ambient: Array<{ path: string; contents: string }>,
+): Array<{ path: string; contents: string }> {
+  const seen = new Set(declared.map((d) => d.path));
+  const merged = [...declared];
+  for (const a of ambient) {
+    if (!seen.has(a.path)) merged.push(a);
+  }
+  return merged;
 }
