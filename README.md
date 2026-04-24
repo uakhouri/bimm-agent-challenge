@@ -6,61 +6,47 @@ This is my submission for the BIMM take-home. It's an agent that reads a natural
 
 ## How to run it
 
-I tested this on Node 20. You'll need an Anthropic API key with billing active.
+### Quickest path — see the sample output
 
-# 1. Install the boilerplate's dependencies
-```bash
-npm install
-```
-# 2. Install the agent's dependencies
-```bash
-cd agent
-npm install
-```
-# 3. Add your API key
-```bash
-cd ..
-cp .env.example .env
-```
-# Open .env and set ANTHROPIC_API_KEY
-
-### Running the sample output without an API key
-
-I've committed a clean generated-app at `sample-output/`. If you want to see what the agent produces without running it yourself:
+If you just want to run the app my agent produced, skip the API key and agent setup:
 
 ```bash
 cd sample-output
 npm install
-npm run dev   # opens at http://localhost:5173
+npm run dev    # opens at http://localhost:5173
 ```
 
-This is the exact output of a successful car-inventory run.
+This is committed, working output from a successful car-inventory run.
+
+### Full path — run the agent yourself
+
+You'll need an Anthropic API key with billing active. I tested this on Node 20.
+
+```bash
+# 1. Install the boilerplate's dependencies
+npm install
+
+# 2. Install the agent's dependencies
+cd agent
+npm install
+
+# 3. Add your API key
+cd ..
+cp .env.example .env
+# Open .env and set ANTHROPIC_API_KEY
 
 # 4. Run the agent against the car inventory spec
-```bash
 cd agent
 npm run agent -- --spec specs/car-inventory.md --fresh
-```
 
 # 5. Run the generated app
-```bash
 cd ../generated-app
 npm install
 npm run dev   # opens at http://localhost:5173
 ```
 
-A run takes about 2 minutes and costs around $0.28 in API usage.
+A run takes about 2 minutes and costs around $0.28 in API usage. When it succeeds, the final summary looks like this:
 
-To test with a different spec, I've included two alternatives that describe the same structural application in different domain language:
-
-```bash
-npm run agent -- --spec specs/vehicle-tracker.md --fresh
-npm run agent -- --spec specs/product-catalog.md --fresh
-```
-
----
-
-## When the agent succeeds, you'll see something like this at the end:
 ```text
 ═══ RUN SUMMARY ═══
 Status:         done
@@ -74,13 +60,20 @@ Total cost:     $0.3196
 Total duration: 154.5s
 ```
 
-### A run takes about 2 minutes and costs around $0.28 in API usage.
+To test with a different spec, I've included two alternatives that describe the same structural application in different domain language:
+
+```bash
+npm run agent -- --spec specs/vehicle-tracker.md --fresh
+npm run agent -- --spec specs/product-catalog.md --fresh
+```
+
+---
 
 ## Setup choices I made
 
 A few things I did when organizing this repo that affect how it reads:
 
-1. **I kept the boilerplate at the repo root, exactly as you shipped it.** My agent lives in `agent/` as a sibling folder. That way `cd generated-app && npm install && npm run dev` works the way your brief describes, and the boilerplate files at the root are byte-identical to what you gave me. I preserved your original README as `BOILERPLATE.md`.
+1. **I kept the boilerplate at the repo root, exactly as you shipped it.** My agent lives in `agent/` as a sibling folder. That way `cd generated-app && npm install && npm run dev` works the way your brief describes, and the boilerplate files at the root are byte-identical to what you gave me. I preserved your original README as `BOILERPLATE.md` so it's still in the repo.
 
 2. **There are two `package.json` files on purpose.** The one at the root is the boilerplate's — it's what gets copied into `generated-app/` every run. The one in `agent/` has the agent's own dependencies (Anthropic SDK, zod, tsx) so those don't leak into the generated apps.
 
@@ -143,6 +136,8 @@ flowchart LR
     class state stateStyle
 ```
 
+A full run looks like this: the CLI reads the spec and copies the boilerplate into `generated-app/`. The Planner decomposes the spec into a DAG of ordered tasks. The Generator produces one file per task, seeing only the dependency files it needs — not the whole project. The Validator runs `tsc` and `vitest` and emits structured errors. If errors exist, the Router picks the task with the most errors and sends it to the Fixer with the failing file and error context; the Fixer returns a full-file replacement. When all files pass mechanical validation, the Judge scores each on a three-dimension rubric. If the pass rate is acceptable (80%+), the run completes. Otherwise, it escalates. Every node emits an OTel-shaped trace span.
+
 Nodes don't call each other. They read state, write state, return. The orchestrator is the only component that knows the graph exists — nodes just know themselves. That's the whole point: a captured state is a complete bug report.
 
 The upfront planning I did before writing code is in [`TICKETS.md`](./TICKETS.md).
@@ -185,6 +180,20 @@ The `agent/src/tools/llm.ts` wrapper is about 100 lines and nothing outside it i
 
 ---
 
+## Prompt engineering
+
+A few deliberate techniques went into the prompts:
+
+- **Schema enforcement on structured outputs.** Every prompt that returns structured data (Planner's plan, Judge's verdicts) asks for JSON matching an explicit shape, and the response is zod-validated before being written to state. A malformed response fails fast at the node that produced it.
+- **Few-shot from the target codebase.** Rather than hand-writing examples, the Generator's prompt loads the boilerplate's real `Example.tsx` and `Example.test.tsx` at runtime and includes them inline. Conventions track the codebase, not my opinions.
+- **Explicit anti-memorization rule in the Planner.** One sentence telling it to derive task names from the spec rather than pattern-match on the domain — the defense against the "spec says cars, Planner emits CarCard" failure mode.
+- **Focused dependency context for the Generator.** Each task is generated with only its dependency files visible, not the whole project. Less noise, better attention.
+- **Separate prompts for Generator and Fixer** even though both write files. The Fixer gets the failing file and structured errors as first-class inputs; the Generator starts from a task description. Different inputs, different prompts.
+
+The full prompts are in `agent/src/prompts/` as plain TypeScript — version-controlled, diffable, reviewable in the commit history.
+
+---
+
 ## Cost per run
 
 These numbers are from a real run against the car inventory spec, not estimates:
@@ -197,7 +206,9 @@ These numbers are from a real run against the car inventory spec, not estimates:
 | Judge | 1 | $0.030 | 11% |
 | **Total** | **14** | **$0.28** | |
 
-About 2 minutes. Generator dominates total cost; Fixer dominates variance. A clean-plan run has 0–1 Fixer cycles; a poorly-planned run can have five. That's why the Planner prompt got disproportionate attention — good plans reduce Fixer cycles, which is where cost scales non-linearly.
+Total tokens: approximately 35K input, 7K output. Total duration: ~2 minutes.
+
+Generator dominates total cost; Fixer dominates variance. A clean-plan run has 0–1 Fixer cycles; a poorly-planned run can have five. That's why the Planner prompt got disproportionate attention — good plans reduce Fixer cycles, which is where cost scales non-linearly.
 
 ---
 
@@ -210,6 +221,14 @@ Since your brief says you'll test with a modified spec, I put three defenses in 
 - I committed two alternative specs in `agent/specs/`: `vehicle-tracker.md` (same structure, different noun) and `product-catalog.md` (generic "item" vocabulary over the same GraphQL schema). Running those produces domain-appropriate file names — `VehicleCard.tsx`, `ProductCard.tsx` — rather than reusing car-specific names from earlier runs.
 
 The spec file extension doesn't matter either — the agent also accepts `.txt`.
+
+---
+
+## Observability
+
+Every agent run writes a JSON trace file to `sample-traces/` with OpenTelemetry-shaped spans. Each span captures per-node timing, input/output tokens, cost, tool calls made, and status (`ok`, `error`, `escalated`). The trace also includes the final plan, verdicts, errors, and overall status — enough to reconstruct a full run without re-running.
+
+Every node emits one span. A typical run produces 14–19 spans and about 20KB of trace JSON. Reference traces from successful runs can be made available on request.
 
 ---
 
@@ -248,6 +267,14 @@ LLM-as-judge with numeric scores and in-code pass thresholds turned out much mor
 
 ---
 
+## A note on scope
+
+The brief suggested 4–6 hours. This submission took me longer — closer to 12 hours across two days. The core agent loop and a passing car-inventory run were about 6 hours of work. The rest — the generalization specs, the OTel-shaped traces with cost accounting, the compatibility patches, the sample-output, and iterating until I had a clean end-to-end run — was the second half. I'd rather over-invest on a real submission than ship something rough.
+
+My commit history on GitHub reflects this as small focused commits that tell the story of how the build evolved — from initial scaffolding through iteration on specific failures.
+
+---
+
 ## Repo layout
 
 ```text
@@ -267,7 +294,7 @@ bimm-agent-challenge/
 │
 ├── generated-app/          (agent output, gitignored, regenerated each run)
 ├── sample-output/          (a committed example produced by a clean run)
-└── sample-traces/          (per-run traces, one committed as reference)
+└── sample-traces/          (per-run traces, with one committed for reference)
 ```
 
-Thanks for the chance to build this
+Thanks for the chance to build this.
