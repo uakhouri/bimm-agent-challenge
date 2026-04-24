@@ -8,17 +8,20 @@ This is my submission for the BIMM take-home. It's an agent that reads a natural
 
 I tested this on Node 20. You'll need an Anthropic API key with billing active.
 
-```bash
 # 1. Install the boilerplate's dependencies
+```bash
 npm install
-
+```
 # 2. Install the agent's dependencies
+```bash
 cd agent
 npm install
-
+```
 # 3. Add your API key
+```bash
 cd ..
 cp .env.example .env
+```
 # Open .env and set ANTHROPIC_API_KEY
 
 ### Running the sample output without an API key
@@ -34,10 +37,13 @@ npm run dev   # opens at http://localhost:5173
 This is the exact output of a successful car-inventory run.
 
 # 4. Run the agent against the car inventory spec
+```bash
 cd agent
 npm run agent -- --spec specs/car-inventory.md --fresh
+```
 
 # 5. Run the generated app
+```bash
 cd ../generated-app
 npm install
 npm run dev   # opens at http://localhost:5173
@@ -55,6 +61,7 @@ npm run agent -- --spec specs/product-catalog.md --fresh
 ---
 
 ## When the agent succeeds, you'll see something like this at the end:
+```text
 ═══ RUN SUMMARY ═══
 Status:         done
 Iterations:     18
@@ -65,6 +72,7 @@ Verdicts:       10 (10 passing)
 LLM calls:      14
 Total cost:     $0.3196
 Total duration: 154.5s
+```
 
 ### A run takes about 2 minutes and costs around $0.28 in API usage.
 
@@ -88,19 +96,31 @@ A few things I did when organizing this repo that affect how it reads:
 
 ```mermaid
 flowchart LR
-    spec([spec]) --> P[Planner<br/>Sonnet]
-    P --> G[Generator<br/>Sonnet]
-    G --> V[Validator<br/>tools only]
-    V --> J[Judge<br/>Haiku]
+    spec([natural-language<br/>spec]) --> P
 
-    V -->|errors| R
-    J -->|verdicts| R
-    R{Router<br/>pure function} -->|fix| F[Fixer<br/>Sonnet]
-    F --> V
-    R -->|done| DONE([done])
-    R -->|budget exhausted| ESC([escalated])
+    P[Planner<br/>Sonnet<br/><i>spec → task DAG</i>]
+    P -->|tasks with<br/>depends_on edges| G
 
-    state[(Shared State<br/>validated with zod)]
+    G[Generator<br/>Sonnet<br/><i>one file per task</i>]
+    G -->|file artifact| V
+
+    V[Validator<br/>tools only<br/><i>tsc + vitest</i>]
+    V -->|no errors| J
+    V -->|structured<br/>errors| R
+
+    J[Judge<br/>Haiku<br/><i>rubric scoring</i>]
+    J -->|numeric<br/>verdicts| R
+
+    R{Router<br/>pure function<br/><i>deterministic</i>}
+    R -->|has errors<br/>+ budget left| F
+    R -->|all pass| DONE([done])
+    R -->|budget<br/>exhausted| ESC([escalated])
+
+    F[Fixer<br/>Sonnet<br/><i>full-file rewrite</i>]
+    F -->|revised file| V
+
+    state[(Shared State<br/>zod-validated<br/>every boundary)]
+
     P -.-> state
     G -.-> state
     V -.-> state
@@ -108,17 +128,19 @@ flowchart LR
     F -.-> state
     R -.-> state
 
-    classDef sonnet fill:#fef3c7,stroke:#f59e0b,color:#000
-    classDef haiku fill:#dbeafe,stroke:#3b82f6,color:#000
-    classDef tools fill:#dcfce7,stroke:#16a34a,color:#000
-    classDef router fill:#fce7f3,stroke:#ec4899,color:#000
-    classDef terminal fill:#f3f4f6,stroke:#6b7280,color:#000
+    classDef sonnet fill:#fef3c7,stroke:#f59e0b,color:#000,stroke-width:2px
+    classDef haiku fill:#dbeafe,stroke:#3b82f6,color:#000,stroke-width:2px
+    classDef tools fill:#dcfce7,stroke:#16a34a,color:#000,stroke-width:2px
+    classDef router fill:#fce7f3,stroke:#ec4899,color:#000,stroke-width:2px
+    classDef terminal fill:#f3f4f6,stroke:#6b7280,color:#000,stroke-width:2px
+    classDef stateStyle fill:#e0e7ff,stroke:#6366f1,color:#000,stroke-width:2px
 
     class P,G,F sonnet
     class J haiku
     class V tools
     class R router
     class DONE,ESC terminal
+    class state stateStyle
 ```
 
 Nodes don't call each other. They read state, write state, return. The orchestrator is the only component that knows the graph exists — nodes just know themselves. That's the whole point: a captured state is a complete bug report.
