@@ -231,13 +231,39 @@ async function prepareOutputDirectory(args: RunAgentArgs): Promise<void> {
     from: args.boilerplate_root,
     to: args.output_root,
     exclude: [
-      "agent",
-      "generated-app",
+      // System and build artifacts
       "node_modules",
-      "sample-traces",
+      "dist",
+      ".vite",
       ".git",
-      ".github",
+
+      // Environment files
+      ".env",
+      ".env.local",
+
+      // Agent's own code
+      "agent",
+
+      // Output directories that shouldn't cascade into new generated apps
+      "generated-app",
+      "sample-output",
+      "sample-traces",
+
+      // Repo-level meta documentation (not part of the boilerplate)
+      "README.md",
+      "README.MD",
+      "BOILERPLATE.md",
+      "TICKETS.md",
+      "ARCHITECTURE.md",
+
+      // Editor/OS files
+      ".DS_Store",
+      "Thumbs.db",
       ".vscode",
+      ".idea",
+
+      // Stray debug output
+      "vitest-output.json",
     ],
   });
   if (!copyResult.ok) {
