@@ -50,7 +50,7 @@ A few things I did when organizing this repo that affect how it reads:
 
 2. **There are two `package.json` files on purpose.** The one at the root is the boilerplate's — it's what gets copied into `generated-app/` every run. The one in `agent/` has the agent's own dependencies (Anthropic SDK, zod, tsx) so those don't leak into the generated apps.
 
-3. **I patched the boilerplate at copy time, not at the source.** Your boilerplate had two quirks that broke under my agent's invocation context: `tsconfig.json` sets `ignoreDeprecations: "6.0"` (a future-dated value the installed TypeScript rejects), and `vitest.config.ts` uses `__dirname` inside ESM modules. Rather than modify your files, my agent patches them on the copy inside `generated-app/` during setup. The repo-root versions are still identical to yours — a `diff` would show my changes are all additions, no modifications to what you provided.
+3. **I patched the boilerplate at copy time, not at the source.** Your boilerplate had two quirks that broke under my agent's invocation context: `tsconfig.json` sets `ignoreDeprecations: "6.0"` (a future-dated value the installed TypeScript rejects), and `vitest.config.ts` uses `__dirname` inside ESM modules. Rather than modify your files, my agent patches them on the copy inside `generated-app/` during setup. The repo-root versions are still identical to yours.
 
 4. **I pinned the Node version with `.nvmrc`.** If you use nvm, you'll pick up the same Node I built against.
 
@@ -58,28 +58,86 @@ A few things I did when organizing this repo that affect how it reads:
 
 ---
 
-## What it does
+## How it works
 
-Given a natural-language spec, the agent:
+```mermaid
+flowchart LR
+    spec([spec]) --> P
 
-1. Decomposes the spec into a dependency-ordered task DAG.
-2. Generates each file one at a time, with focused dependency context.
-3. Runs `tsc` and `vitest` to validate mechanically.
-4. Routes failing files to a Fixer that receives the structured errors alongside the failing file.
-5. Scores each file against a rubric using a cheaper LLM as judge.
-6. Either completes or escalates, writing an OpenTelemetry-shaped trace either way.
+    subgraph nodes [" "]
+      direction LR
+      P[Planner<br/>Sonnet] --> G[Generator<br/>Sonnet]
+      G --> V[Validator<br/>tools only]
+      V --> J[Judge<br/>Haiku]
+    end
 
-I documented the design decisions in detail in [`ARCHITECTURE.md`](./ARCHITECTURE.md), and the upfront planning I did before writing code is in [`TICKETS.md`](./TICKETS.md).
+    V -->|errors| R
+    J -->|verdicts| R
+    R{Router<br/>pure function} -->|fix| F[Fixer<br/>Sonnet]
+    F --> V
+    R -->|done| DONE([done])
+    R -->|budget exhausted| ESC([escalated])
+
+    state[(Shared State<br/>validated with zod)]
+    P -.-> state
+    G -.-> state
+    V -.-> state
+    J -.-> state
+    F -.-> state
+    R -.-> state
+
+    classDef sonnet fill:#fef3c7,stroke:#f59e0b
+    classDef haiku fill:#dbeafe,stroke:#3b82f6
+    classDef tools fill:#dcfce7,stroke:#16a34a
+    classDef router fill:#fce7f3,stroke:#ec4899
+    classDef terminal fill:#f3f4f6,stroke:#6b7280
+
+    class P,G,F sonnet
+    class J haiku
+    class V tools
+    class R router
+    class DONE,ESC terminal
+```
+
+Nodes don't call each other. They read state, write state, return. The orchestrator is the only component that knows the graph exists — nodes just know themselves. That's the whole point: a captured state is a complete bug report.
+
+The upfront planning I did before writing code is in [`TICKETS.md`](./TICKETS.md).
+
+---
+
+## Decisions and tradeoffs
+
+The ten choices that most shaped the system.
+
+- **Router is a pure function.** Deterministic control flow is the property that makes failed runs replayable — feed the captured state back in, get the same decision. Escalation on novel errors is deliberate; I'd rather surface the unknown than pattern-match around it.
+
+- **Hand-rolled state machine rather than LangGraph or LangChain.** Frameworks earn their weight when control flow is dynamic. Mine isn't. Adding a framework would have obscured the loop I was being evaluated on.
+
+- **Mechanical validation gates the LLM judge.** `tsc` and `vitest` are ground truth and cost nothing. Running them first keeps the Judge's input distribution clean, which sharpens its prompt and cuts wasted calls on code that was never going to pass.
+
+- **Sonnet for reasoning, Haiku for classification.** Judge scoring is bounded; Haiku handles it at ~20% of Sonnet's cost with no measurable quality drop. The work everywhere else is open-ended, and the Sonnet/Haiku gap there shows up as retries — the variable cost, not the per-call cost.
+
+- **Generator sees dependency files only, not the whole project.** Attention is the limit that matters, not context size. Focused context produces better output than exhaustive context, measurably. This shifts effort onto the Planner's dependency analysis, which I consider correctly placed.
+
+- **Zod validation at every node boundary.** LLM outputs are probabilistic; typed contracts make them auditable. A malformed response surfaces at the exact node that misbehaved instead of propagating as a weird crash downstream.
+
+- **Judge emits scores; code derives pass/fail.** Numeric output from an LLM is measurably more stable than binary. Keeping the threshold in code means I can calibrate policy without touching the prompt.
+
+- **Retry budget is state, not an exception.** Escalation is observable, replayable, and a clean integration point for a future approval queue. Exceptions would be none of those things.
+
+- **Few-shot examples are read from the boilerplate at runtime, not written into prompts.** The agent's conventions track the target codebase rather than my assumptions about it. Point this at a different React project and it adapts — that's the generalization property, not a side effect.
+
+- **OTel-shaped spans without the OTel SDK.** The shape is what matters for backend compatibility; the SDK adds distributed-tracing machinery a single-process CLI doesn't use. If this ever runs distributed, the tracer is the single substitution point.
 
 ---
 
 ## LLM choice
 
-I used **Claude Sonnet 4.5** for the Planner, Generator, and Fixer — the reasoning-bound roles. On these task shapes, the Sonnet-to-Haiku quality gap shows up as fewer retries, and retries are the real cost driver.
+I used **Claude Sonnet 4.5** for the Planner, Generator, and Fixer — the reasoning-bound roles.
 
-I used **Claude Haiku 4.5** for the Judge. Rubric scoring is bounded classification, which Haiku handles at roughly 20% of Sonnet's cost with no quality drop I could measure on that task.
+I used **Claude Haiku 4.5** for the Judge. Rubric scoring is bounded classification; Haiku handles it at ~20% of Sonnet's cost with no measurable quality drop on that task shape.
 
-The `agent/src/tools/llm.ts` wrapper is about 100 lines and nothing outside that file imports the Anthropic SDK. If you wanted to swap in OpenAI or Gemini, it'd be a one-file change.
+The `agent/src/tools/llm.ts` wrapper is about 100 lines and nothing outside it imports the Anthropic SDK. Swapping providers would be a one-file change.
 
 ---
 
@@ -95,7 +153,7 @@ These numbers are from a real run against the car inventory spec, not estimates:
 | Judge | 1 | $0.030 | 11% |
 | **Total** | **14** | **$0.28** | |
 
-Total duration was about 2 minutes. The Generator dominates total cost because it runs once per task. The Fixer dominates variance — a clean-plan run has 0–1 Fixer cycles, but a poorly-planned run can have five. This is why I put disproportionate effort into the Planner prompt. Good plans mean fewer Fixer cycles, which matters more than per-call model choice.
+About 2 minutes. Generator dominates total cost; Fixer dominates variance. A clean-plan run has 0–1 Fixer cycles; a poorly-planned run can have five. That's why the Planner prompt got disproportionate attention — good plans reduce Fixer cycles, which is where cost scales non-linearly.
 
 ---
 
@@ -104,52 +162,50 @@ Total duration was about 2 minutes. The Generator dominates total cost because i
 Since your brief says you'll test with a modified spec, I put three defenses in place against memorization:
 
 - The Planner prompt has an explicit anti-memorization rule that tells it to derive task names from the spec rather than pattern-match on domain vocabulary.
-- Few-shot examples for the Generator are pulled from the boilerplate's actual files at runtime — specifically `Example.tsx` and `Example.test.tsx`. The agent's style lives in the target codebase, not in my prompts. If you pointed this agent at a different codebase with different conventions, it would adapt.
+- Few-shot examples for the Generator come from the boilerplate's real files at runtime. The agent's style lives in the target codebase, not in my prompts.
 - I committed two alternative specs in `agent/specs/`: `vehicle-tracker.md` (same structure, different noun) and `product-catalog.md` (generic "item" vocabulary over the same GraphQL schema). Running those produces domain-appropriate file names — `VehicleCard.tsx`, `ProductCard.tsx` — rather than reusing car-specific names from earlier runs.
 
-The spec file extension doesn't matter either — I also tested with `.txt`.
+The spec file extension doesn't matter either — the agent also accepts `.txt`.
 
 ---
 
 ## What worked well
 
-**The state machine made iteration debuggable.** Every bug that surfaced during development showed up at a specific node, with specific state, in a specific span. Capturing a failing state and replaying it through the router — which is a pure function — is the property that paid off most often.
+The state machine made iteration debuggable. Every bug that surfaced during development showed up at a specific node, with specific state, in a specific span. Capturing a failing state and replaying it through the pure-function router was the property that paid off most often during the build.
 
-**Pulling few-shot from the codebase was the right default.** The generated code consistently matches the boilerplate's conventions — default exports, `@/` aliases, `MockedProvider` in tests with `__typename` on mocks — because the prompt literally shows the Generator what `Example.tsx` looks like. This is a generalization property rather than a car-inventory-specific trick.
+Pulling few-shot from the boilerplate was the right default. The generated code consistently matches conventions — default exports, `@/` aliases, `MockedProvider` tests with `__typename` on mocks — because the prompt shows the Generator what `Example.tsx` looks like.
 
-**Two-layer validation caught different classes of bugs.** Typecheck caught missing imports and wrong type names. Vitest caught components that rendered wrong. The Judge caught rubric misses. Each layer's prompts stayed focused because the other layers handled different concerns.
+Two-layer validation caught different classes of bugs. Typecheck caught missing imports. Vitest caught components that rendered wrong. The Judge caught rubric misses. Each layer stayed focused because the others handled different concerns.
 
-**Numbers from the LLM, booleans from code.** The Judge returns integer scores on three rubric dimensions and the pass threshold is a function in `state.ts`. Numeric output from an LLM is more stable than binary output, and keeping the threshold in code means I can tune it without re-tuning the prompt.
+LLM-as-judge with numeric scores and in-code pass thresholds turned out much more stable than asking for a boolean verdict.
 
 ---
 
 ## What I'd improve with more time
 
-In order of what I'd tackle first:
-
-1. **Anthropic prompt caching on the Generator's convention preamble.** The same ~2K tokens appear in every Generator call. Caching would cut Generator input cost by ~90% after the first call, dropping total run cost roughly in half. One SDK flag away.
-2. **Parallel generation across independent DAG nodes.** Tasks without shared ancestors can run concurrently. This would roughly halve wall-clock time.
-3. **Test-component co-generation.** The most common failure I saw during iteration was the Generator writing a test that expects specific error wording, then writing a component with different wording. Generating them together (or feeding the real component's text into the test prompt) would eliminate this.
-4. **Semantic routing by error class.** Typecheck errors and test failures currently go to the same Fixer prompt. Specialized prompts per error class would converge faster.
-5. **A real human-in-the-loop hook.** Escalation currently logs and exits. A production version would push to an approval queue.
-6. **Trace summary CLI.** The data is already in the trace files; a small reader would give per-node success rate and p95 latency.
+1. **Anthropic prompt caching on the Generator's convention preamble.** Same ~2K tokens on every call × 10 calls. One SDK flag, ~90% reduction on Generator input cost, ~50% reduction on total run cost.
+2. **Parallel generation across independent DAG nodes.** Roughly halves wall-clock time.
+3. **Test-component co-generation.** The most common failure I saw: Generator writes a test expecting specific error wording, then writes a component with different wording. Generating them together — or feeding the real component's text into the test prompt — fixes this.
+4. **Semantic routing by error class.** Typecheck errors and test failures currently use the same Fixer prompt; specialized prompts per error class would converge faster.
+5. **Trace summary CLI.** The data is already captured; a small reader would give per-node success rate and p95 latency.
 
 ---
 
 ## Known limitations
 
-**The agent doesn't succeed 100% of the time.** In my iteration sessions, about 70–80% of runs completed cleanly. The rest escalated — usually because a test expected wording the corresponding component didn't produce, or the Fixer couldn't converge within its retry budget. My architecture keeps these failures visible and bounded rather than silent or infinite, but individual runs are still probabilistic at the LLM leaves.
+**The agent doesn't succeed 100% of the time.** In iteration, about 70–80% of my runs completed cleanly. The rest escalated — usually because a test expected wording the component didn't produce, or the Fixer couldn't converge within its retry budget. My architecture keeps those failures visible and bounded rather than silent or infinite, but individual runs are still probabilistic at the LLM leaves.
 
-**Single provider.** The LLM wrapper is designed to be provider-agnostic, but only Anthropic is wired up right now.
+**Single provider.** The LLM wrapper is designed to be provider-agnostic but only Anthropic is wired up.
 
-**No incremental updates.** Every run with `--fresh` wipes the output directory. If you wanted to iterate on a generated app instead of regenerating it, that'd need state persistence across runs.
+**No incremental updates.** Every run with `--fresh` wipes the output directory. No file renames, no diff-based updates.
 
 ---
 
 ## Repo layout
+
+```text
 bimm-agent-challenge/
 ├── README.md               (this file)
-├── ARCHITECTURE.md         (design decisions, tradeoffs, diagram)
 ├── TICKETS.md              (upfront planning I did before coding)
 ├── BOILERPLATE.md          (your original boilerplate README)
 ├── .env.example
@@ -165,5 +221,6 @@ bimm-agent-challenge/
 ├── generated-app/          (agent output, gitignored, regenerated each run)
 ├── sample-output/          (a committed example produced by a clean run)
 └── sample-traces/          (per-run traces, one committed as reference)
+```
 
-Thanks for the chance to build this.
+Thanks for the chance to build this
