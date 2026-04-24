@@ -294,10 +294,29 @@ async function patchTsconfig(outputRoot: string): Promise<void> {
   const readResult = await readFile(tsconfigPath);
   if (!readResult.ok) return;
 
-  const patched = readResult.value.replace(
+  let patched = readResult.value;
+
+  // Fix 1: change ignoreDeprecations from "6.0" (future-dated, rejected by
+  // installed TS 5.x) to "5.0" (accepted, silences TS 5.x deprecations).
+  patched = patched.replace(
     /"ignoreDeprecations"\s*:\s*"6\.0"/,
-    '"ignoreDeprecations": "5.0"'
+    '"ignoreDeprecations": "5.0"',
   );
+
+  // Fix 2: remove baseUrl. It's deprecated as of TS 6.0 and can only be
+  // silenced by ignoreDeprecations "6.0" — which installed TS rejects. Since
+  // `paths` works without baseUrl in modern TS (when paths are relative),
+  // removing it resolves the deprecation conflict.
+  patched = patched.replace(/^\s*"baseUrl"\s*:\s*"\."\s*,?\s*$/m, "");
+
+  // Fix 3: paths need to be relative when baseUrl is absent. TS emits TS5090
+  // if any path mapping starts with a non-relative token. Rewrite "src/*"
+  // to "./src/*" inside the @/* alias. Generalized to any alias pointing
+  // at a bare "src/..." path.
+  patched = patched.replace(/("@[^"]*"\s*:\s*\[\s*")src\//g, "$1./src/");
+
+  // Clean up any double blank lines the baseUrl removal may have left.
+  patched = patched.replace(/\n\s*\n\s*\n/g, "\n\n");
 
   if (patched !== readResult.value) {
     const writeResult = await writeFile({
@@ -307,7 +326,7 @@ async function patchTsconfig(outputRoot: string): Promise<void> {
     });
     if (!writeResult.ok) {
       throw new Error(
-        `Failed to patch tsconfig in output directory: ${writeResult.error.message}`
+        `Failed to patch tsconfig in output directory: ${writeResult.error.message}`,
       );
     }
   }
