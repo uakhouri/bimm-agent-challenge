@@ -267,14 +267,6 @@ LLM-as-judge with numeric scores and in-code pass thresholds turned out much mor
 
 ---
 
-## A note on scope
-
-The brief suggested 4–6 hours. This submission took me longer — closer to 12 hours across two days. The core agent loop and a passing car-inventory run were about 6 hours of work. The rest — the generalization specs, the OTel-shaped traces with cost accounting, the compatibility patches, the sample-output, and iterating until I had a clean end-to-end run — was the second half. I'd rather over-invest on a real submission than ship something rough.
-
-My commit history on GitHub reflects this as small focused commits that tell the story of how the build evolved — from initial scaffolding through iteration on specific failures.
-
----
-
 ## Repo layout
 
 ```text
