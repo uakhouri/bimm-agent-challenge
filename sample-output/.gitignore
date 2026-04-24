@@ -1,0 +1,28 @@
+# Dependencies
+node_modules
+agent/node_modules
+
+# Build outputs
+dist
+agent/dist
+.vite
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Agent runtime artifacts
+sample-traces/*.json
+!sample-traces/.gitkeep
+
+# Editor / OS
+*.local
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+generated-app/
+ARCHITECTURE.md

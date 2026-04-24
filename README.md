@@ -21,6 +21,18 @@ cd ..
 cp .env.example .env
 # Open .env and set ANTHROPIC_API_KEY
 
+### Running the sample output without an API key
+
+I've committed a clean generated-app at `sample-output/`. If you want to see what the agent produces without running it yourself:
+
+```bash
+cd sample-output
+npm install
+npm run dev   # opens at http://localhost:5173
+```
+
+This is the exact output of a successful car-inventory run.
+
 # 4. Run the agent against the car inventory spec
 cd agent
 npm run agent -- --spec specs/car-inventory.md --fresh
@@ -42,6 +54,20 @@ npm run agent -- --spec specs/product-catalog.md --fresh
 
 ---
 
+## When the agent succeeds, you'll see something like this at the end:
+═══ RUN SUMMARY ═══
+Status:         done
+Iterations:     18
+Tasks planned:  10
+Artifacts:      12
+Errors:         0
+Verdicts:       10 (10 passing)
+LLM calls:      14
+Total cost:     $0.3196
+Total duration: 154.5s
+
+### A run takes about 2 minutes and costs around $0.28 in API usage.
+
 ## Setup choices I made
 
 A few things I did when organizing this repo that affect how it reads:
@@ -50,7 +76,7 @@ A few things I did when organizing this repo that affect how it reads:
 
 2. **There are two `package.json` files on purpose.** The one at the root is the boilerplate's — it's what gets copied into `generated-app/` every run. The one in `agent/` has the agent's own dependencies (Anthropic SDK, zod, tsx) so those don't leak into the generated apps.
 
-3. **I patched the boilerplate at copy time, not at the source.** Your boilerplate had two quirks that broke under my agent's invocation context: `tsconfig.json` sets `ignoreDeprecations: "6.0"` (a future-dated value the installed TypeScript rejects), and `vitest.config.ts` uses `__dirname` inside ESM modules. Rather than modify your files, my agent patches them on the copy inside `generated-app/` during setup. The repo-root versions are still identical to yours.
+3. **I patched the boilerplate at copy time, not at the source.** Your boilerplate had a few quirks that broke under my agent's invocation context — the `tsconfig.json` was configured for a future TypeScript version the installed one rejected, the path aliases cascaded once I resolved that, and `vitest.config.ts` used `__dirname` inside ESM modules. Rather than modify your files, my agent applies all these patches on the copy inside `generated-app/` during setup. The repo-root versions remain byte-identical to what you shipped.
 
 4. **I pinned the Node version with `.nvmrc`.** If you use nvm, you'll pick up the same Node I built against.
 
@@ -117,7 +143,7 @@ The ten choices that most shaped the system.
 
 - **Zod validation at every node boundary.** LLM outputs are probabilistic; typed contracts make them auditable. A malformed response surfaces at the exact node that misbehaved instead of propagating as a weird crash downstream.
 
-- **Judge emits scores; code derives pass/fail.** Numeric output from an LLM is measurably more stable than binary. Keeping the threshold in code means I can calibrate policy without touching the prompt.
+- **Judge emits scores; code derives pass/fail.** Numeric output from an LLM is measurably more stable than binary. Keeping the threshold in code means I can calibrate policy without touching the prompt. The current threshold (3 of 5 on each rubric dimension) is tuned by eye, not against historical run data — a production version would calibrate it from real runs.
 
 - **Retry budget is state, not an exception.** Escalation is observable, replayable, and a clean integration point for a future approval queue. Exceptions would be none of those things.
 
@@ -184,6 +210,7 @@ LLM-as-judge with numeric scores and in-code pass thresholds turned out much mor
 3. **Test-component co-generation.** The most common failure I saw: Generator writes a test expecting specific error wording, then writes a component with different wording. Generating them together — or feeding the real component's text into the test prompt — fixes this.
 4. **Semantic routing by error class.** Typecheck errors and test failures currently use the same Fixer prompt; specialized prompts per error class would converge faster.
 5. **Trace summary CLI.** The data is already captured; a small reader would give per-node success rate and p95 latency.
+6. **Unit tests for the agent code itself.** The router is a pure function and trivial to test — fixture states in, assert on returned action. I didn't write these because I was iterating on prompts, not routing logic, but a production system would have them.
 
 ---
 
@@ -194,6 +221,8 @@ LLM-as-judge with numeric scores and in-code pass thresholds turned out much mor
 **Single provider.** The LLM wrapper is designed to be provider-agnostic but only Anthropic is wired up.
 
 **No incremental updates.** Every run with `--fresh` wipes the output directory. No file renames, no diff-based updates.
+
+**Cost per run varies.** The $0.28 figure is a typical clean run. Runs with more Fixer cycles cost more — I've seen as high as $0.55 on pathological plans. Budget up to roughly $0.60 if you test multiple runs.
 
 ---
 
