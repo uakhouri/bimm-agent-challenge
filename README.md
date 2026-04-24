@@ -1,240 +1,169 @@
-# Senior Fullstack Engineer — Take-Home Challenge
+# Agentic Code Generation Workflow
 
-## Agentic Code Generation Workflow
-
-**Time Budget:** 4–6 hours (we respect your time — scope accordingly)
-**Submission Deadline:** 5 business days from receipt
+This is my submission for the BIMM take-home. It's an agent that reads a natural-language spec and generates a working React + TypeScript + Apollo + MUI application into the provided boilerplate.
 
 ---
 
-## Overview
+## How to run it
 
-At our agency, AI-assisted development is a core part of how we build. This challenge tests your ability to design and implement an **agentic workflow** — an AI-powered system that takes a natural-language specification and autonomously generates a working frontend application.
-
-You will build an agent (or multi-agent system) that reads a product specification and produces a **React + TypeScript** application that matches a reference implementation. The agent should plan, scaffold, generate code, and self-validate — not just make a single LLM call and hope for the best.
-
----
-
-## The Boilerplate
-
-A pre-built boilerplate is provided with the full stack already configured. **Your agent should generate code into this existing project structure**, not scaffold from scratch. This lets you focus on the agentic workflow rather than build tooling setup.
-
-### What's Included
-
-```
-boilerplate/
-├── src/
-│   ├── main.tsx                   # Entry — boots MSW, wires Apollo + MUI
-│   ├── App.tsx                    # Shell (placeholder for generated code)
-│   ├── types.ts                   # Car interface
-│   ├── test-setup.ts              # Vitest + MSW integration
-│   ├── graphql/
-│   │   ├── client.ts              # Apollo client configured
-│   │   └── queries.ts             # GET_CARS, GET_CAR, ADD_CAR queries/mutations
-│   ├── mocks/
-│   │   ├── data.ts                # 5 seed cars with placeholder images
-│   │   ├── handlers.ts            # MSW GraphQL handlers (GetCars, GetCar, AddCar)
-│   │   ├── browser.ts             # MSW browser setup (dev)
-│   │   └── server.ts              # MSW node setup (tests)
-│   ├── components/
-│   │   └── Example.tsx            # Reference component showing Apollo + MUI usage
-│   └── __tests__/
-│       └── Example.test.tsx       # Reference test showing MockedProvider pattern
-├── public/mockServiceWorker.js    # MSW service worker
-├── index.html
-├── package.json
-├── tsconfig.json
-├── vite.config.ts
-└── vitest.config.ts
-```
-
-### Tech Stack (pre-configured)
-
-- React 19 + TypeScript
-- Vite
-- Apollo Client (GraphQL)
-- Material UI (MUI)
-- MSW (Mock Service Worker) for API mocking
-- Vitest + Testing Library for testing
-
-### Quick Start
+I tested this on Node 20. You'll need an Anthropic API key with billing active.
 
 ```bash
+# 1. Install the boilerplate's dependencies
 npm install
-npm run dev      # App at localhost:5173
-npm run test     # Run test suite
-npm run typecheck # TypeScript checking
+
+# 2. Install the agent's dependencies
+cd agent
+npm install
+
+# 3. Add your API key
+cd ..
+cp .env.example .env
+# Open .env and set ANTHROPIC_API_KEY
+
+# 4. Run the agent against the car inventory spec
+cd agent
+npm run agent -- --spec specs/car-inventory.md --fresh
+
+# 5. Run the generated app
+cd ../generated-app
+npm install
+npm run dev   # opens at http://localhost:5173
 ```
 
----
+A run takes about 2 minutes and costs around $0.28 in API usage.
 
-## The Reference Application
-
-Your agent's output should be a working **Car Inventory Manager** backed by a mock GraphQL API. It must:
-
-1. **Display a list of cars** fetched via Apollo Client from a mock GraphQL API (GetCars query) served by MSW
-2. **Show responsive car images** — the GraphQL schema includes mobile, tablet, and desktop image URLs. Render the appropriate image based on viewport width:
-   - ≤ 640px → mobile
-   - 641px – 1023px → tablet
-   - ≥ 1024px → desktop
-3. **Use Material UI cards** to present each car (make, model, year, color, image)
-4. **Include an "Add Car" form** that submits via a GraphQL mutation (AddCar)
-5. **Implement sorting and search** — a search bar to filter by model, plus sorting by year or make
-6. **Extract GraphQL logic** into a `useCars()` custom hook
-7. **Include unit tests** for key components
-
-### Mock Data Schema
-
-The boilerplate provides a `Car` type and 5 seed cars:
-
-```typescript
-interface Car {
-  id: string;
-  make: string;
-  model: string;
-  year: number;
-  color: string;
-  mobile: string;
-  tablet: string;
-  desktop: string;
-}
-```
-
-### Optional Extras (the agent can attempt these)
-
-- A `GetCar` query to fetch individual cars
-- A year filter (multi-filter support alongside model search)
-- A reusable `useCarFilters()` hook combining all filter logic
-
----
-
-## What You Must Build
-
-### Your Deliverable: An Agentic Workflow
-
-Build a CLI tool or script (Node.js, Python, or TypeScript) that:
-
-1. **Accepts a natural-language specification as input** (a text file or string describing the app above)
-2. **Plans the implementation** — the agent should decompose the spec into discrete, ordered tasks (e.g., "create useCars hook", "build CarCard component", "write SearchBar")
-3. **Generates the application code** — file by file, with awareness of dependencies between files, into the provided boilerplate
-4. **Self-validates** — the agent should verify its output (e.g., run the test suite, or use a secondary LLM call to review its own code)
-5. **Iterates on failures** — if validation fails, the agent should read the error output and attempt a fix (at least 1 retry loop)
-6. **Outputs a runnable project** — the final result should work with:
+To test with a different spec, I've included two alternatives that describe the same structural application in different domain language:
 
 ```bash
-cd generated-app && npm install && npm run dev
+npm run agent -- --spec specs/vehicle-tracker.md --fresh
+npm run agent -- --spec specs/product-catalog.md --fresh
 ```
 
 ---
 
-## Architecture Expectations
+## Setup choices I made
 
-We're evaluating **how you design the agentic loop**, not just whether the output compiles.
+A few things I did when organizing this repo that affect how it reads:
 
-Your system should demonstrate:
+1. **I kept the boilerplate at the repo root, exactly as you shipped it.** My agent lives in `agent/` as a sibling folder. That way `cd generated-app && npm install && npm run dev` works the way your brief describes, and the boilerplate files at the root are byte-identical to what you gave me. I preserved your original README as `BOILERPLATE.md`.
 
-| Concept | What We're Looking For |
-|---|---|
-| **Task Decomposition** | The agent breaks the spec into ordered, dependency-aware steps — not one giant prompt |
-| **Tool Use** | The agent calls tools (file write, shell commands, LLM calls) as discrete actions |
-| **Context Management** | The agent passes relevant context between steps without exceeding token limits |
-| **Error Recovery** | The agent reads test or type-check output and feeds errors back into the generation loop |
-| **Prompt Design** | Prompts are structured, specific, and use techniques like few-shot examples or schema enforcement |
+2. **There are two `package.json` files on purpose.** The one at the root is the boilerplate's — it's what gets copied into `generated-app/` every run. The one in `agent/` has the agent's own dependencies (Anthropic SDK, zod, tsx) so those don't leak into the generated apps.
 
-### How You Work Matters
+3. **I patched the boilerplate at copy time, not at the source.** Your boilerplate had two quirks that broke under my agent's invocation context: `tsconfig.json` sets `ignoreDeprecations: "6.0"` (a future-dated value the installed TypeScript rejects), and `vitest.config.ts` uses `__dirname` inside ESM modules. Rather than modify your files, my agent patches them on the copy inside `generated-app/` during setup. The repo-root versions are still identical to yours — a `diff` would show my changes are all additions, no modifications to what you provided.
 
-Beyond the code itself, we want to see **how you approach the problem**:
+4. **I pinned the Node version with `.nvmrc`.** If you use nvm, you'll pick up the same Node I built against.
 
-- **Planned work** — Break your work into clear tickets or tasks before diving in. We want to see evidence of upfront thinking, not just a single "initial commit" with everything.
-- **Clear architecture decisions** — Document why you chose your approach. What tradeoffs did you consider? Why this LLM provider? Why this agent structure?
-- **Meaningful commit history** — Small, focused commits that tell a story. We should be able to read your git log and understand how the project evolved. Avoid a single large commit with all the work.
-- **Iterative development** — Show that you built incrementally — get one piece working, then the next. Not everything at once.
-
-### Recommended (Not Required) Stack for the Agent
-
-- **LLM Provider:** Anthropic (Claude), OpenAI, or any provider — use what you're strongest with
-- **Agent Framework:** LangChain, LangGraph, CrewAI, Mastra, plain function-calling loops — your choice, or roll your own
-- **Tooling:** File system operations, shell execution (vitest, npm), LLM API calls
+5. **`.env.example` is committed, `.env` is gitignored.** Standard secrets hygiene.
 
 ---
 
-## Evaluation Criteria
+## What it does
 
-### Primary (70%)
+Given a natural-language spec, the agent:
 
-| Criteria | Weight | Description |
-|---|---|---|
-| **Agent Design** | 25% | Quality of the agentic loop: planning, execution, validation, retry. Is it a real workflow or a wrapper around a single prompt? |
-| **Output Quality** | 20% | Does the generated app work? Does it meet the functional spec? |
-| **Prompt Engineering** | 15% | Are prompts well-structured? Do they constrain output format and provide the right context at each step? |
-| **Error Handling** | 10% | Does the agent recover from generation failures gracefully? |
+1. Decomposes the spec into a dependency-ordered task DAG.
+2. Generates each file one at a time, with focused dependency context.
+3. Runs `tsc` and `vitest` to validate mechanically.
+4. Routes failing files to a Fixer that receives the structured errors alongside the failing file.
+5. Scores each file against a rubric using a cheaper LLM as judge.
+6. Either completes or escalates, writing an OpenTelemetry-shaped trace either way.
 
-### Secondary (30%)
-
-| Criteria | Weight | Description |
-|---|---|---|
-| **Code Quality (of the agent)** | 10% | Is the agent code clean, typed, and well-organized? |
-| **Documentation** | 10% | README explaining architecture decisions, how to run, and tradeoffs |
-| **Creativity** | 10% | Bonus features: multi-agent collaboration, caching, parallel generation, cost optimization |
+I documented the design decisions in detail in [`ARCHITECTURE.md`](./ARCHITECTURE.md), and the upfront planning I did before writing code is in [`TICKETS.md`](./TICKETS.md).
 
 ---
 
-## Submission Requirements
+## LLM choice
 
-1. **A Git repository** (GitHub, GitLab, or zipped) containing:
-   - The agent source code
-   - A `README.md` with setup instructions, architecture overview, and design decisions
-   - A sample spec file (the natural-language input your agent consumes)
-   - A sample output directory (a generated app we can run)
+I used **Claude Sonnet 4.5** for the Planner, Generator, and Fixer — the reasoning-bound roles. On these task shapes, the Sonnet-to-Haiku quality gap shows up as fewer retries, and retries are the real cost driver.
 
-2. **A `.env.example` file** listing which API keys your agent needs (see the provided `.env.example` for the format). We will supply our own keys when running your agent.
+I used **Claude Haiku 4.5** for the Judge. Rubric scoring is bounded classification, which Haiku handles at roughly 20% of Sonnet's cost with no quality drop I could measure on that task.
 
-3. **A short write-up** (can be in the README) covering:
-   - Which LLM(s) you used and why
-   - Your agent architecture (a diagram is welcome)
-   - What worked well and what you'd improve with more time
-   - Approximate cost per run (tokens used, API cost)
-
-4. **Working demo:** We will run your agent with your sample spec and verify the output compiles and runs. We may also **modify the spec slightly** to test generalization.
+The `agent/src/tools/llm.ts` wrapper is about 100 lines and nothing outside that file imports the Anthropic SDK. If you wanted to swap in OpenAI or Gemini, it'd be a one-file change.
 
 ---
 
-## What We're NOT Looking For
+## Cost per run
 
-- **A perfect UI** — functional correctness matters more than polish
-- **An over-engineered framework** — a clean, well-thought-out script is better than a sprawling abstraction layer
-- **Memorization** — if your agent only works because the spec is hardcoded into the prompts, that's a red flag. We'll test with a modified spec
-- **Databases, backends, or infrastructure** — the boilerplate uses MSW to mock the API. There is no real backend. Do not build one. No databases, no Docker, no server setup
-- **Authentication, deployment, or CI/CD** — keep scope focused on the agent and the generated app
+These numbers are from a real run against the car inventory spec, not estimates:
 
----
+| Node | Calls | Cost | Share |
+|---|---|---|---|
+| Planner | 1 | $0.036 | 13% |
+| Generator | 10 | $0.180 | 64% |
+| Fixer | 2 | $0.034 | 12% |
+| Judge | 1 | $0.030 | 11% |
+| **Total** | **14** | **$0.28** | |
 
-## Getting Started
-
-```bash
-# 1. Clone this repo (contains the boilerplate)
-git clone <repo-url> && cd Fullstack-Coding-Challenge
-
-# 2. Verify the boilerplate works
-npm install
-npm run dev        # Should run at localhost:5173
-npm run test       # Should pass (2 tests)
-npm run typecheck  # Should pass
-
-# 3. Build your agent (in a separate directory or repo)
-# Your agent should copy this boilerplate, then generate code into it
-
-# 4. Run your agent
-node agent.js --spec ./spec.txt --output ./generated-app
-
-# 5. Verify the output
-cd generated-app
-npm install
-npm run dev
-```
+Total duration was about 2 minutes. The Generator dominates total cost because it runs once per task. The Fixer dominates variance — a clean-plan run has 0–1 Fixer cycles, but a poorly-planned run can have five. This is why I put disproportionate effort into the Planner prompt. Good plans mean fewer Fixer cycles, which matters more than per-call model choice.
 
 ---
 
-## Questions?
+## Generalization
 
-If anything is ambiguous, make a reasonable assumption and document it in your README. We value clear thinking over asking for clarification on every detail.
+Since your brief says you'll test with a modified spec, I put three defenses in place against memorization:
+
+- The Planner prompt has an explicit anti-memorization rule that tells it to derive task names from the spec rather than pattern-match on domain vocabulary.
+- Few-shot examples for the Generator are pulled from the boilerplate's actual files at runtime — specifically `Example.tsx` and `Example.test.tsx`. The agent's style lives in the target codebase, not in my prompts. If you pointed this agent at a different codebase with different conventions, it would adapt.
+- I committed two alternative specs in `agent/specs/`: `vehicle-tracker.md` (same structure, different noun) and `product-catalog.md` (generic "item" vocabulary over the same GraphQL schema). Running those produces domain-appropriate file names — `VehicleCard.tsx`, `ProductCard.tsx` — rather than reusing car-specific names from earlier runs.
+
+The spec file extension doesn't matter either — I also tested with `.txt`.
+
+---
+
+## What worked well
+
+**The state machine made iteration debuggable.** Every bug that surfaced during development showed up at a specific node, with specific state, in a specific span. Capturing a failing state and replaying it through the router — which is a pure function — is the property that paid off most often.
+
+**Pulling few-shot from the codebase was the right default.** The generated code consistently matches the boilerplate's conventions — default exports, `@/` aliases, `MockedProvider` in tests with `__typename` on mocks — because the prompt literally shows the Generator what `Example.tsx` looks like. This is a generalization property rather than a car-inventory-specific trick.
+
+**Two-layer validation caught different classes of bugs.** Typecheck caught missing imports and wrong type names. Vitest caught components that rendered wrong. The Judge caught rubric misses. Each layer's prompts stayed focused because the other layers handled different concerns.
+
+**Numbers from the LLM, booleans from code.** The Judge returns integer scores on three rubric dimensions and the pass threshold is a function in `state.ts`. Numeric output from an LLM is more stable than binary output, and keeping the threshold in code means I can tune it without re-tuning the prompt.
+
+---
+
+## What I'd improve with more time
+
+In order of what I'd tackle first:
+
+1. **Anthropic prompt caching on the Generator's convention preamble.** The same ~2K tokens appear in every Generator call. Caching would cut Generator input cost by ~90% after the first call, dropping total run cost roughly in half. One SDK flag away.
+2. **Parallel generation across independent DAG nodes.** Tasks without shared ancestors can run concurrently. This would roughly halve wall-clock time.
+3. **Test-component co-generation.** The most common failure I saw during iteration was the Generator writing a test that expects specific error wording, then writing a component with different wording. Generating them together (or feeding the real component's text into the test prompt) would eliminate this.
+4. **Semantic routing by error class.** Typecheck errors and test failures currently go to the same Fixer prompt. Specialized prompts per error class would converge faster.
+5. **A real human-in-the-loop hook.** Escalation currently logs and exits. A production version would push to an approval queue.
+6. **Trace summary CLI.** The data is already in the trace files; a small reader would give per-node success rate and p95 latency.
+
+---
+
+## Known limitations
+
+**The agent doesn't succeed 100% of the time.** In my iteration sessions, about 70–80% of runs completed cleanly. The rest escalated — usually because a test expected wording the corresponding component didn't produce, or the Fixer couldn't converge within its retry budget. My architecture keeps these failures visible and bounded rather than silent or infinite, but individual runs are still probabilistic at the LLM leaves.
+
+**Single provider.** The LLM wrapper is designed to be provider-agnostic, but only Anthropic is wired up right now.
+
+**No incremental updates.** Every run with `--fresh` wipes the output directory. If you wanted to iterate on a generated app instead of regenerating it, that'd need state persistence across runs.
+
+---
+
+## Repo layout
+bimm-agent-challenge/
+├── README.md               (this file)
+├── ARCHITECTURE.md         (design decisions, tradeoffs, diagram)
+├── TICKETS.md              (upfront planning I did before coding)
+├── BOILERPLATE.md          (your original boilerplate README)
+├── .env.example
+│
+├── src/ public/ index.html (your boilerplate, unchanged)
+├── package.json            (your boilerplate package.json)
+│
+├── agent/                  (the actual deliverable)
+│   ├── src/                (nodes, prompts, tools, tracing, graph, state)
+│   ├── specs/              (sample natural-language inputs)
+│   └── package.json
+│
+├── generated-app/          (agent output, gitignored, regenerated each run)
+├── sample-output/          (a committed example produced by a clean run)
+└── sample-traces/          (per-run traces, one committed as reference)
+
+Thanks for the chance to build this.
