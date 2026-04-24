@@ -62,14 +62,10 @@ A few things I did when organizing this repo that affect how it reads:
 
 ```mermaid
 flowchart LR
-    spec([spec]) --> P
-
-    subgraph nodes [" "]
-      direction LR
-      P[Planner<br/>Sonnet] --> G[Generator<br/>Sonnet]
-      G --> V[Validator<br/>tools only]
-      V --> J[Judge<br/>Haiku]
-    end
+    spec([spec]) --> P[Planner<br/>Sonnet]
+    P --> G[Generator<br/>Sonnet]
+    G --> V[Validator<br/>tools only]
+    V --> J[Judge<br/>Haiku]
 
     V -->|errors| R
     J -->|verdicts| R
@@ -86,11 +82,11 @@ flowchart LR
     F -.-> state
     R -.-> state
 
-    classDef sonnet fill:#fef3c7,stroke:#f59e0b
-    classDef haiku fill:#dbeafe,stroke:#3b82f6
-    classDef tools fill:#dcfce7,stroke:#16a34a
-    classDef router fill:#fce7f3,stroke:#ec4899
-    classDef terminal fill:#f3f4f6,stroke:#6b7280
+    classDef sonnet fill:#fef3c7,stroke:#f59e0b,color:#000
+    classDef haiku fill:#dbeafe,stroke:#3b82f6,color:#000
+    classDef tools fill:#dcfce7,stroke:#16a34a,color:#000
+    classDef router fill:#fce7f3,stroke:#ec4899,color:#000
+    classDef terminal fill:#f3f4f6,stroke:#6b7280,color:#000
 
     class P,G,F sonnet
     class J haiku
